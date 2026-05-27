@@ -1,0 +1,49 @@
+# bi-orchestrator default config.
+# Copy to ~/.bi-orchestrator/config.toml to override; the package falls back to this
+# file when the user override is absent.
+
+[paths]
+# SQLite state store and log directory. ~ is expanded to %USERPROFILE% on Windows.
+state_db = "~/.bi-orchestrator/state.db"
+logs_dir = "~/.bi-orchestrator/logs"
+# Parent directory where worktrees of target repos are created.
+# Worktrees live as siblings of the target repo so the absolute MCP launcher paths
+# in each repo's `.cursor/mcp.json` continue to resolve.
+worktree_root_kind = "sibling"  # sibling | dedicated_dir
+worktree_dedicated_dir = "Q:\\BI\\Users\\Dudi\\Developments\\.bi-orchestrator-worktrees"
+
+[models]
+# Cursor SDK model IDs. Cursor mirrors Anthropic's canonical identifier
+# (https://cursor.com/docs/models/claude-opus-4-7), so the slug is dashes-not-dots.
+# `sdk_utils.resolve_model` still verifies via Cursor.models.list() at launch and
+# falls back to the closest Opus variant (or "auto") if this slug is not in the
+# caller's account model list.
+planner = "claude-opus-4-7"
+developer = "claude-opus-4-7"
+qa = "claude-opus-4-7"
+
+[caps.assignment]
+max_qa_iterations = 3
+max_validation_iterations = 3
+max_cost_usd = 5.0
+max_wallclock_minutes = 120
+
+[caps.pipeline]
+max_parallel_dev_agents = 4
+max_cost_usd = 30.0
+
+[deploy_target]
+# Pattern used to derive a unique per-branch deploy target name when patching the
+# worktree's pbi-project.json. {base} is the existing dev target name, {slug} is a
+# branch-derived slug.
+pattern = "{base}-{slug}"
+
+[git]
+# Branch naming for assignments. {pipeline} is the pipeline short id, {slug} is an
+# assignment-derived slug.
+branch_pattern = "agents/{pipeline}/{slug}"
+default_base_branch = "main"
+
+[mcp]
+# Name the orchestrator MCP server uses when registered in ~/.cursor/mcp.json.
+server_name = "bi-orchestrator"

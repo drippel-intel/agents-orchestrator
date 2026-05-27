@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local state (orchestrator writes to ~/.bi-orchestrator/, but keep belt-and-braces)
+state.db
+state.db-*
+*.log
+logs/
+
+# Editor / OS
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# OneDrive temp / lock files
+~$*
+*.tmp
