@@ -17,6 +17,8 @@ The orchestrator state lives in SQLite at `~/.bi-orchestrator/state.db`; the orc
 daemon and the MCP server are independent processes communicating only through that store.
 That keeps Cursor's chat-scoped MCP process thin while the daemon owns long-running work.
 
+This project targets Windows only.
+
 ## Layout
 
 ```text
@@ -47,7 +49,7 @@ User-level installation footprint:
 ~/.bi-orchestrator/config.toml           # optional per-user override of defaults
 ```
 
-## Setup (Windows — recommended)
+## Setup (Windows)
 
 ```powershell
 # From the project root. Installs everything by default.
@@ -79,24 +81,7 @@ If you do not have a key yet, mint one at
 [Cursor Dashboard → Cloud Agents → User API Keys](https://cursor.com/dashboard/cloud-agents)
 ("New API Key") and paste it when the installer asks.
 
-## Setup (Linux / macOS)
-
-```bash
-./scripts/install.sh
-```
-
-Same defaults (install everything, prompt for the key if absent). Opt out with
-`--skip-mcp`, `--skip-skill`, `--skip-api-key-prompt`. The Linux installer
-writes a profile snippet at `~/.bi-orchestrator/env.sh` instead of using
-`setx`; source it from your shell rc to make the key persistent.
-
-Override the venv location with `BI_ORCHESTRATOR_VENV=/opt/bi-orch`. BI
-execution itself (Tabular Editor, Power BI Desktop, Intel on-prem SSAS) is
-Windows-only — the Linux installer is useful for CI smoke tests of the
-orchestrator code or for running the daemon on a host that drives only cloud
-BI assets.
-
-## Manual setup (what the installer does, for reference)
+## Manual setup (equivalent to the installer)
 
 ```powershell
 # 1. Create a venv on local disk (NOT inside OneDrive).
@@ -164,10 +149,10 @@ Three pieces are per-machine and need to be set up each time:
    - Git clone, once we push to innersource.
    - Built wheel: `python -m build`, then `pip install bi_orchestrator-*.whl`
      on the target (no source folder required).
-2. **Venv + install**: run `scripts\install.ps1` (or `scripts/install.sh`).
-3. **`CURSOR_API_KEY`** env var: `setx CURSOR_API_KEY "..."` on Windows or
-   `export CURSOR_API_KEY=...` in your shell profile elsewhere. The same key
-   is valid on any machine; you mint it once.
+2. **Venv + install**: run `scripts\install.ps1`, or follow the manual setup
+   steps above if you do not want to use the helper script.
+3. **`CURSOR_API_KEY`** env var: `setx CURSOR_API_KEY "..."`. The same key is
+   valid on any machine; you mint it once.
 
 Things that *do* carry across machines automatically:
 
@@ -178,42 +163,3 @@ Things that *do* carry across machines automatically:
   history across machines, point `paths.state_db` in
   `~/.bi-orchestrator/config.toml` at a synced location.
 
-## Status
-
-**Phases 0-5 complete**:
-
-- Phase 0: scaffold, SQLite DAO, worktree manager, smoke orchestrator, MCP server, chat skill.
-- Phase 1: planner agent, plan review/edit/approval.
-- Phase 2: daemon fan-out, disjoint-file enforcement, parallel cap.
-- Phase 3: static QA agent and capped dev-resume loop.
-- Phase 4: live QA against per-branch deploy targets and scenarios.
-- Phase 5: human validation, merge, notifications, and worktree cleanup.
-
-Current test gate: `28 passed` under `tests/`, plus `ruff check .`.
-
-See [`.cursor/plans/bi_orchestrator_service.plan.md`](.cursor/plans/bi_orchestrator_service.plan.md)
-for the full plan, the phase breakdown, and the current todo statuses.
-
-## Continuing this work in a new chat
-
-The plan file, the source code, and the tests are all on disk — none of that
-depends on a particular chat session being open. To pick up after closing this
-chat:
-
-1. Open a new Cursor chat with this folder as the workspace root
-   (`C:\Users\drippel\OneDrive - Intel Corporation\Documents\Technical\agents-orchestrator`).
-2. Point the new agent at the plan file:
-
-   > "Continue the BI orchestrator plan at
-   > `.cursor/plans/bi_orchestrator_service.plan.md`.
-   > Phases 0-5 are complete; review the current code and continue from the next requested change."
-
-3. The new agent reads the plan (which has accurate completed/pending todo
-   statuses), reads this README, glances at `bi_orchestrator/` and `tests/`,
-   and resumes.
-
-What is **not** preserved automatically: the chat transcript-level reasoning
-(why we chose SQLite over Postgres, what we considered for cloud agents and
-ruled out, etc.). Those decisions are baked into the plan's body sections, so a
-future agent that reads the plan inherits the conclusions but not every step of
-the deliberation.
