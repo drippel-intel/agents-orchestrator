@@ -22,19 +22,19 @@ todos:
     status: completed
   - id: planner
     content: "Phase 1: planner agent + show_plan + approve_plan + edit_plan tools"
-    status: pending
+    status: completed
   - id: fanout
     content: "Phase 2: parallel fan-out with disjoint-file enforcement, per-branch deploy target naming, max_parallel cap"
-    status: pending
+    status: completed
   - id: static_qa
     content: "Phase 3: QA agent for static checks + dev iteration loop with iteration cap"
-    status: pending
+    status: completed
   - id: live_qa
     content: "Phase 4: live QA path - deploy/refresh/run_measure_tests/regression_test against per-branch target, baseline comparison"
-    status: pending
+    status: completed
   - id: validation_merge
     content: "Phase 5: pending_validations / submit_validation / merge / cleanup flow"
-    status: pending
+    status: completed
 isProject: false
 ---
 

@@ -10,7 +10,6 @@ import logging
 import logging.handlers
 from pathlib import Path
 
-
 _FORMAT = "%(asctime)s %(levelname)-7s [%(name)s] %(message)s"
 
 

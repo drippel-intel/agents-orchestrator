@@ -37,6 +37,7 @@ packages = ["bi_orchestrator"]
 # can copy it into ~/.cursor/skills/.
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "skills"
+"bi_orchestrator/prompts" = "bi_orchestrator/prompts"
 
 [tool.ruff]
 line-length = 100

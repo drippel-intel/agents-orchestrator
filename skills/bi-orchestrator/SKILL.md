@@ -59,16 +59,16 @@ Before the orchestrator can do any real work:
 
 ## What the orchestrator currently does (phase status)
 
-The orchestrator is being built in phases. As of Phase 0:
+The orchestrator is being built in phases. As of Phase 5:
 
 | Phase | Status | What works |
 |------|--------|------------|
 | 0 — end-to-end smoke | shipped | `start_pipeline`, `get_status`, `list_recent_events`, `pending_notifications`, `acknowledge_notification` tools; CLI `bi-orchestrator smoke` runs one developer agent on a sibling worktree end-to-end |
-| 1 — planner agent + approval | not yet | the planner that decomposes requirements into assignments |
-| 2 — fan-out | not yet | parallel developer agents across N worktrees |
-| 3 — static QA loop | not yet | QA agent + dev-resume-on-fail |
-| 4 — live QA per branch | not yet | deploy / refresh / run_measure_tests against per-branch dev target |
-| 5 — validation + auto-merge | not yet | `pending_validations`, `submit_validation`, `gh pr merge`, cleanup |
+| 1 — planner agent + approval | shipped | CLI `bi-orchestrator plan <pipeline_id>` runs the planner; MCP `show_plan`, `edit_plan`, `approve_plan` materialize assignments after approval |
+| 2 — fan-out | shipped | CLI `bi-orchestrator daemon` schedules approved assignments across worktrees up to `max_parallel_dev_agents`; `--once` runs one scheduler tick |
+| 3 — static QA loop | shipped | QA agent runs static checks after dev; failures resume the developer agent until `max_qa_iterations` |
+| 4 — live QA per branch | shipped | live QA deploys, refreshes, runs measure/regression tests against each assignment deploy target, and feeds failures back through the QA loop |
+| 5 — validation + auto-merge | shipped | `pending_validations`, `submit_validation`, `merge_assignment`, `gh pr merge`, worktree cleanup |
 
 When the user asks for capabilities that are not yet shipped, tell them what
 phase that lands in and offer to run the Phase 0 smoke instead.
@@ -79,8 +79,10 @@ phase that lands in and offer to run the Phase 0 smoke instead.
 
 - **`start_pipeline(requirements, target_repo_path, base_branch?, notes?)`**
   Creates a pipeline row in the SQLite state store with status `planned`.
-  In Phase 0 the planner agent does **not** run automatically — the pipeline is
-  just recorded. Use this to set up a pipeline you will hand-drive via the CLI.
+  Run `bi-orchestrator plan <pipeline_id>` to create the planner draft.
+- **`show_plan(pipeline_id)`** — return the planner draft for review.
+- **`edit_plan(pipeline_id, patch_json, replace?)`** — update the draft before approval.
+- **`approve_plan(pipeline_id)`** — approve the draft and create assignment rows.
 - **`get_status(pipeline_id?)`** — list pipelines (no args) or drill into one
   with its assignments.
 - **`list_recent_events(assignment_id?, pipeline_id?, limit?)`** — audit log for
@@ -88,6 +90,11 @@ phase that lands in and offer to run the Phase 0 smoke instead.
 - **`pending_notifications()`** / **`acknowledge_notification(id)`** — the
   notification queue (validation-needed, cap breaches). MCP-only channel for
   now — there is no Slack / email integration.
+- **`pending_validations()`** — list assignments awaiting human validation.
+- **`submit_validation(assignment_id, approved, feedback?)`** — approve or send
+  validation feedback for another capped dev/QA iteration.
+- **`merge_assignment(assignment_id)`** — squash-merge a validation-approved PR
+  and clean up its worktree.
 
 ---
 
@@ -101,18 +108,16 @@ Order of operations:
 2. Confirm the **base branch** (default `main`).
 3. Call `start_pipeline` to record the pipeline. Show the returned `pipeline_id`
    to the user.
-4. In Phase 0, tell the user the next step is the CLI smoke command (since the
-   planner is not online yet):
+4. Run the planner from the installed CLI:
 
    ```powershell
-   C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe smoke --target-repo <path>
+   C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe plan <pipeline_id>
    ```
 
-   Offer to run it for them via the terminal if they want.
-
-5. After the smoke / agent run, call `get_status(pipeline_id=…)` and report what
-   happened. If the smoke failed, call `list_recent_events(assignment_id=…)` to
-   show the audit log.
+5. Call `show_plan(pipeline_id=…)`, review the assignments with the user, then
+   call `edit_plan` if needed or `approve_plan` when the draft is acceptable.
+6. Run `bi-orchestrator daemon` to fan out approved assignments. Use
+   `bi-orchestrator daemon --once` for one deterministic scheduler tick.
 
 ---
 
@@ -132,18 +137,18 @@ the user is reading, not polling.
 
 ## When the user asks about validation
 
-Phase 0 does not have a validation flow yet. If the user asks "what's waiting
-for me", call `pending_notifications()`. If there is nothing, say so; do not
-hallucinate validation queues.
+Call `pending_validations()` to list assignments awaiting review. Use
+`submit_validation` to approve or send feedback. After approval, call
+`merge_assignment` when the user asks to merge.
 
 ---
 
 ## Hard rules
 
 - **Never** invent or guess MCP tool names. Only call `start_pipeline`,
-  `get_status`, `list_recent_events`, `pending_notifications`,
-  `acknowledge_notification`. If you need something else (cancel, approve plan,
-  validate, merge), say "that lands in Phase N" and stop.
+  `show_plan`, `edit_plan`, `approve_plan`, `get_status`, `list_recent_events`,
+  `pending_notifications`, `acknowledge_notification`, `pending_validations`,
+  `submit_validation`, and `merge_assignment`.
 - **Never** edit the target BI repo directly from this chat. The orchestrator is
   the only path that touches a repo, via spawned dev / QA agents in their own
   worktrees.

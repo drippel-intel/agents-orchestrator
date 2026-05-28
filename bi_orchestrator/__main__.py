@@ -14,19 +14,22 @@ from . import __version__
 from .config import Config, load_config
 from .logging_setup import configure_logging
 
-
 log = logging.getLogger("bi_orchestrator")
 
 
-def _cmd_daemon(_args: argparse.Namespace) -> int:
-    log.info("daemon subcommand: not implemented yet (Phase 2+)")
-    log.info("config loaded successfully; scaffold and DB are wired up")
-    return 0
+def _cmd_daemon(args: argparse.Namespace, config: Config) -> int:
+    from .orchestrator import run_daemon
+    return run_daemon(config, once=args.once, sleep_seconds=args.sleep_seconds)
 
 
 def _cmd_smoke(args: argparse.Namespace, config: Config) -> int:
     from .orchestrator import cli_smoke
     return cli_smoke(config, Path(args.target_repo), cleanup=args.cleanup)
+
+
+def _cmd_plan(args: argparse.Namespace, config: Config) -> int:
+    from .orchestrator import cli_plan
+    return cli_plan(config, args.pipeline_id)
 
 
 def _cmd_status(_args: argparse.Namespace, config: Config) -> int:
@@ -76,6 +79,17 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="cmd", required=False)
 
     p_daemon = sub.add_parser("daemon", help="run the orchestrator daemon (long-running)")
+    p_daemon.add_argument(
+        "--once",
+        action="store_true",
+        help="run one scheduler tick and exit (useful for testing)",
+    )
+    p_daemon.add_argument(
+        "--sleep-seconds",
+        type=float,
+        default=5.0,
+        help="delay between scheduler ticks in long-running mode",
+    )
     p_daemon.set_defaults(func=_cmd_daemon)
 
     p_smoke = sub.add_parser("smoke", help="Phase 0 smoke test: launch one dev agent on a worktree")
@@ -90,6 +104,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="on a clean finish, tear down the worktree and delete the branch",
     )
     p_smoke.set_defaults(func=_cmd_smoke)
+
+    p_plan = sub.add_parser("plan", help="Phase 1: run planner for an existing pipeline")
+    p_plan.add_argument("pipeline_id", help="pipeline id returned by start_pipeline")
+    p_plan.set_defaults(func=_cmd_plan)
 
     p_status = sub.add_parser("status", help="show pipeline / assignment status")
     p_status.set_defaults(func=_cmd_status)
@@ -126,9 +144,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     log.debug("loaded config: %s", config.model_dump())
 
-    # Subcommands declare whether they need the parsed config object.
-    if args.func is _cmd_daemon:
-        return _cmd_daemon(args)
     return args.func(args, config)
 
 

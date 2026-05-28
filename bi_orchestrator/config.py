@@ -8,12 +8,11 @@ startup rather than at the agent-launch boundary.
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
 from typing import Literal
 
+import tomllib
 from pydantic import BaseModel, Field
-
 
 PACKAGED_CONFIG = Path(__file__).resolve().parent.parent / "config.toml"
 USER_CONFIG = Path.home() / ".bi-orchestrator" / "config.toml"

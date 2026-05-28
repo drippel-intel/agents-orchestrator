@@ -10,7 +10,6 @@ import logging
 import os
 from dataclasses import dataclass
 
-
 log = logging.getLogger("bi_orchestrator.sdk_utils")
 
 

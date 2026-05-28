@@ -16,6 +16,7 @@ import logging
 import secrets
 import sqlite3
 from collections.abc import Iterable
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -161,10 +162,30 @@ def update_pipeline_status(conn: sqlite3.Connection, pipeline_id: str, status: s
               payload={"status": status})
 
 
-def set_pipeline_plan(conn: sqlite3.Connection, pipeline_id: str, plan: dict[str, Any]) -> None:
-    conn.execute(
-        "UPDATE pipeline SET plan_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(plan), _now(), pipeline_id),
+def set_pipeline_plan(
+    conn: sqlite3.Connection,
+    pipeline_id: str,
+    plan: dict[str, Any],
+    *,
+    status: str | None = None,
+) -> None:
+    if status is None:
+        conn.execute(
+            "UPDATE pipeline SET plan_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(plan), _now(), pipeline_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE pipeline SET plan_json = ?, status = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(plan), status, _now(), pipeline_id),
+        )
+        log_event(conn, pipeline_id=pipeline_id, kind="pipeline_status_change",
+                  payload={"status": status})
+    log_event(
+        conn,
+        pipeline_id=pipeline_id,
+        kind="pipeline_plan_updated",
+        payload={"assignments": len(plan.get("assignments", []))},
     )
 
 
@@ -190,8 +211,9 @@ def create_assignment(
     acceptance_criteria: str | None = None,
     deploy_target_name: str | None = None,
     status: str = AssignmentStatus.PLANNED,
+    assignment_id: str | None = None,
 ) -> str:
-    assignment_id = new_assignment_id(pipeline_id)
+    assignment_id = assignment_id or new_assignment_id(pipeline_id)
     ts = _now()
     conn.execute(
         """
@@ -267,6 +289,50 @@ def list_in_flight_assignments(conn: sqlite3.Connection) -> list[dict[str, Any]]
     rows = conn.execute(
         f"SELECT * FROM assignment WHERE status IN ({placeholders})",
         IN_FLIGHT_STATUSES,
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+# ---------- Scenarios ----------------------------------------------------------
+
+def create_scenario(
+    conn: sqlite3.Connection,
+    assignment_id: str,
+    name: str,
+    kind: str,
+    expected: dict[str, Any],
+    *,
+    status: str = "not_run",
+    scenario_id: str | None = None,
+) -> str:
+    scenario_id = scenario_id or new_scenario_id(assignment_id)
+    conn.execute(
+        """
+        INSERT INTO scenario (
+            id, assignment_id, name, kind, expected_json, last_status
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (scenario_id, assignment_id, name, kind, json.dumps(expected), status),
+    )
+    row = conn.execute(
+        "SELECT pipeline_id FROM assignment WHERE id = ?", (assignment_id,)
+    ).fetchone()
+    log_event(
+        conn,
+        assignment_id=assignment_id,
+        pipeline_id=row["pipeline_id"] if row else None,
+        kind="scenario_created",
+        payload={"name": name, "kind": kind},
+    )
+    return scenario_id
+
+
+def list_scenarios_for_assignment(
+    conn: sqlite3.Connection, assignment_id: str
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM scenario WHERE assignment_id = ? ORDER BY name",
+        (assignment_id,),
     ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
@@ -361,8 +427,6 @@ def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     for col in ("depends_on_json", "files_json", "expected_json",
                 "last_actual_json", "plan_json", "payload_json"):
         if col in out and out[col] is not None:
-            try:
+            with suppress(TypeError, json.JSONDecodeError):
                 out[col[:-5] if col.endswith("_json") else col] = json.loads(out[col])
-            except (TypeError, json.JSONDecodeError):
-                pass
     return out

@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions, RunResult
-
+from cursor_sdk import Agent, AgentOptions, CursorAgentError, LocalAgentOptions, RunResult
 
 log = logging.getLogger("bi_orchestrator.agents.developer")
+PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "developer.md"
 
 
 @dataclass
@@ -63,6 +64,7 @@ def run_developer_once(
     worktree_path: Path,
     prompt: str,
     stream_to_console: bool = True,
+    on_run_started: Callable[[str | None, str | None], None] | None = None,
 ) -> DevRunOutcome:
     """Run one developer agent end-to-end against ``worktree_path``.
 
@@ -90,6 +92,8 @@ def run_developer_once(
             run = agent.send(prompt)
             run_id = getattr(run, "id", None) or getattr(run, "run_id", None)
             log.info("Run started: run_id=%s", run_id)
+            if on_run_started is not None:
+                on_run_started(agent_id, run_id)
 
             for message in run.messages():
                 if getattr(message, "type", None) != "assistant":
@@ -135,4 +139,91 @@ def run_developer_once(
         final_text="".join(final_chunks) if final_chunks else None,
         error_message=error_message,
         cost_usd=_extract_cost(result),
+    )
+
+
+def resume_developer_once(
+    *,
+    api_key: str,
+    agent_id: str,
+    prompt: str,
+    stream_to_console: bool = True,
+    on_run_started: Callable[[str | None, str | None], None] | None = None,
+) -> DevRunOutcome:
+    """Resume an existing developer agent with QA feedback."""
+    final_chunks: list[str] = []
+    run_id: str | None = None
+    result: RunResult | None = None
+
+    try:
+        with Agent.resume(agent_id, AgentOptions(api_key=api_key)) as agent:
+            resumed_agent_id = (
+                getattr(agent, "agent_id", None)
+                or getattr(agent, "agentId", None)
+                or agent_id
+            )
+            run = agent.send(prompt)
+            run_id = getattr(run, "id", None) or getattr(run, "run_id", None)
+            if on_run_started is not None:
+                on_run_started(resumed_agent_id, run_id)
+            for message in run.messages():
+                if getattr(message, "type", None) != "assistant":
+                    continue
+                msg = getattr(message, "message", None) or message
+                content = getattr(msg, "content", None) or []
+                for block in content:
+                    if getattr(block, "type", None) == "text":
+                        text = getattr(block, "text", "") or ""
+                        final_chunks.append(text)
+                        if stream_to_console:
+                            sys.stdout.write(text)
+                            sys.stdout.flush()
+            result = run.wait()
+            if stream_to_console:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+    except CursorAgentError as err:
+        log.error("Developer agent resume failed: %s", err)
+        return DevRunOutcome(
+            agent_id=agent_id,
+            run_id=run_id,
+            status="startup_failed",
+            final_text=None,
+            error_message=str(err),
+            cost_usd=None,
+        )
+
+    status = _result_status(result)
+    error_message: str | None = None
+    if status == "error":
+        error_message = getattr(result, "error", None) or getattr(result, "message", None)
+        if not isinstance(error_message, str):
+            error_message = repr(error_message) if error_message else None
+
+    return DevRunOutcome(
+        agent_id=agent_id,
+        run_id=run_id,
+        status=status,
+        final_text="".join(final_chunks) if final_chunks else None,
+        error_message=error_message,
+        cost_usd=_extract_cost(result),
+    )
+
+
+def render_developer_prompt(
+    *,
+    title: str,
+    requirements: str,
+    files: list[str],
+    acceptance_criteria: str | None,
+    deploy_target_name: str | None,
+) -> str:
+    template = PROMPT_PATH.read_text(encoding="utf-8")
+    files_text = "\n".join(f"- {path}" for path in files) if files else "- Inspect the repo."
+    return template.format(
+        title=title,
+        requirements=requirements,
+        files=files_text,
+        acceptance_criteria=acceptance_criteria or "Use the assignment title and requirements.",
+        deploy_target_name=deploy_target_name or "dev",
     )

@@ -21,7 +21,6 @@ from bi_orchestrator.config import (
     PipelineCaps,
 )
 
-
 # ---------- Helpers -----------------------------------------------------------
 
 def _git(repo: Path, *args: str) -> str:

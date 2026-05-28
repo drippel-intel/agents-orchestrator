@@ -20,7 +20,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 log = logging.getLogger("bi_orchestrator.install")
 
 

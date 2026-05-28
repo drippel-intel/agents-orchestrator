@@ -24,7 +24,6 @@ from typing import Any
 
 from .config import Config
 
-
 log = logging.getLogger("bi_orchestrator.worktree")
 
 
@@ -159,10 +158,9 @@ def remove_worktree(
         log.info("Removing worktree at %s (force=%s)", worktree_path, force)
         _run_git(repo_path, *args)
 
-    if delete_branch:
-        if _branch_exists(repo_path, delete_branch):
-            log.info("Deleting branch %s", delete_branch)
-            _run_git(repo_path, "branch", "-D" if force else "-d", delete_branch)
+    if delete_branch and _branch_exists(repo_path, delete_branch):
+        log.info("Deleting branch %s", delete_branch)
+        _run_git(repo_path, "branch", "-D" if force else "-d", delete_branch)
 
 
 # ---------- pbi-project.json patching -----------------------------------------
