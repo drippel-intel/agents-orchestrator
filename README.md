@@ -49,29 +49,110 @@ User-level installation footprint:
 ~/.bi-orchestrator/config.toml           # optional per-user override of defaults
 ```
 
-## Setup (Windows)
+## Setup (Windows — recommended)
 
 ```powershell
-# Create the venv outside OneDrive (OneDrive sync can lock venv files).
+# From the project root. Installs everything by default.
+.\scripts\install.ps1
+```
+
+This single command:
+
+- Verifies Python 3.10+ is on PATH.
+- Creates `~\.bi-orchestrator-venv` (override with `-VenvPath`). The venv lives
+  outside OneDrive on purpose — OneDrive sync occasionally locks files and
+  collides with `pip` and venv launches.
+- Installs the project in editable mode.
+- Registers the MCP server in `~\.cursor\mcp.json`.
+- Installs the chat skill in `~\.cursor\skills\bi-orchestrator\`.
+- Checks `CURSOR_API_KEY`. If it is not set on this machine, prompts you to
+  paste a key (input is masked) and persists it via `setx`. The current shell
+  is also updated so subsequent commands see it.
+
+Opt out of any default with the corresponding switch:
+
+```powershell
+.\scripts\install.ps1 -SkipMcp -SkipSkill -SkipApiKeyPrompt
+.\scripts\install.ps1 -VenvPath D:\envs\bi-orch-venv
+.\scripts\install.ps1 -ApiKey 'crsr_...'        # non-interactive key
+```
+
+If you do not have a key yet, mint one at
+[Cursor Dashboard → Cloud Agents → User API Keys](https://cursor.com/dashboard/cloud-agents)
+("New API Key") and paste it when the installer asks.
+
+## Setup (Linux / macOS)
+
+```bash
+./scripts/install.sh
+```
+
+Same defaults (install everything, prompt for the key if absent). Opt out with
+`--skip-mcp`, `--skip-skill`, `--skip-api-key-prompt`. The Linux installer
+writes a profile snippet at `~/.bi-orchestrator/env.sh` instead of using
+`setx`; source it from your shell rc to make the key persistent.
+
+Override the venv location with `BI_ORCHESTRATOR_VENV=/opt/bi-orch`. BI
+execution itself (Tabular Editor, Power BI Desktop, Intel on-prem SSAS) is
+Windows-only — the Linux installer is useful for CI smoke tests of the
+orchestrator code or for running the daemon on a host that drives only cloud
+BI assets.
+
+## Manual setup (what the installer does, for reference)
+
+```powershell
+# 1. Create a venv on local disk (NOT inside OneDrive).
 python -m venv C:\Users\drippel\.bi-orchestrator-venv
-C:\Users\drippel\.bi-orchestrator-venv\Scripts\Activate.ps1
 
-# Install in editable mode from the project directory.
-pip install -e ".[dev]"
+# 2. Install the project from this folder, in editable mode.
+C:\Users\drippel\.bi-orchestrator-venv\Scripts\python.exe -m pip install --upgrade pip
+C:\Users\drippel\.bi-orchestrator-venv\Scripts\python.exe -m pip install -e ".[dev]"
 
-# Verify install.
-bi-orchestrator --version
+# 3. Register the MCP server + chat skill with Cursor.
+C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe install-mcp --skill
 ```
 
-The orchestrator daemon and the MCP server are separate entry points:
+Editable mode (`-e`) means the venv points at this source folder — edits take
+effect on the next command, no reinstall needed. For "ship to a host without
+source on disk" build a wheel with `python -m build` and `pip install` the
+resulting `.whl` instead.
+
+## Day-to-day entry points
 
 ```powershell
-# In one terminal: run the daemon (long-running, drives the state machine).
-bi-orchestrator daemon
+# CLI (smoke, status, install-mcp, daemon)
+C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe
 
-# The MCP server is started by Cursor on demand once you add it to
-# ~/.cursor/mcp.json — you do not normally launch it yourself.
+# MCP server — Cursor spawns this; you do not normally run it yourself.
+C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator-mcp.exe
+
+# Run the daemon (long-running, drives the state machine). Phase 2+.
+bi-orchestrator daemon
 ```
+
+## Moving to a new machine
+
+Three pieces are per-machine and need to be set up each time:
+
+1. **Source code** on disk. Easiest options:
+   - OneDrive sync (you already have this — the `agents-orchestrator` folder
+     appears automatically on any Intel machine you sign into).
+   - Git clone, once we push to innersource.
+   - Built wheel: `python -m build`, then `pip install bi_orchestrator-*.whl`
+     on the target (no source folder required).
+2. **Venv + install**: run `scripts\install.ps1` (or `scripts/install.sh`).
+3. **`CURSOR_API_KEY`** env var: `setx CURSOR_API_KEY "..."` on Windows or
+   `export CURSOR_API_KEY=...` in your shell profile elsewhere. The same key
+   is valid on any machine; you mint it once.
+
+Things that *do* carry across machines automatically:
+
+- The packaged `config.toml`, the SQL migrations, the agent prompts, and the
+  chat skill — all are part of the source tree.
+- The SQLite state store at `~/.bi-orchestrator/state.db` is local to each
+  machine (so each machine has its own pipeline history). If you want a single
+  history across machines, point `paths.state_db` in
+  `~/.bi-orchestrator/config.toml` at a synced location.
 
 ## Status
 
