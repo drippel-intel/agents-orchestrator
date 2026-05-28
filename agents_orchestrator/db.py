@@ -1,4 +1,4 @@
-"""SQLite DAO for bi-orchestrator state.
+"""SQLite DAO for agents-orchestrator state.
 
 Single source of truth shared between the orchestrator daemon and the MCP server.
 WAL mode is enabled so the two processes can read/write concurrently without
@@ -21,10 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger("bi_orchestrator.db")
+log = logging.getLogger("agents_orchestrator.db")
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-SCHEMA_LATEST = 1
+SCHEMA_LATEST = 2
 
 
 # ---------- Status enums (kept as strings to play nice with SQLite) ------------
@@ -136,6 +136,7 @@ def create_pipeline(
     base_branch: str,
     status: str = PipelineStatus.PLANNED,
     notes: str | None = None,
+    kind: str = "bi",
 ) -> str:
     pipeline_id = new_pipeline_id()
     ts = _now()
@@ -143,13 +144,13 @@ def create_pipeline(
         """
         INSERT INTO pipeline (
             id, created_at, updated_at, status,
-            requirements_doc, target_repo_path, base_branch, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            requirements_doc, target_repo_path, base_branch, notes, kind
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (pipeline_id, ts, ts, status, requirements_doc, target_repo_path, base_branch, notes),
+        (pipeline_id, ts, ts, status, requirements_doc, target_repo_path, base_branch, notes, kind),
     )
     log_event(conn, pipeline_id=pipeline_id, kind="pipeline_created",
-              payload={"target_repo_path": target_repo_path, "base_branch": base_branch})
+              payload={"target_repo_path": target_repo_path, "base_branch": base_branch, "kind": kind})
     return pipeline_id
 
 

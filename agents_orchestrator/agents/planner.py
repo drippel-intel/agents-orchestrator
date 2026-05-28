@@ -20,9 +20,9 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from ..config import Config
 from ..worktree import slugify_branch
 
-log = logging.getLogger("bi_orchestrator.agents.planner")
+log = logging.getLogger("agents_orchestrator.agents.planner")
 
-PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "planner.md"
+PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts" / "planner"
 
 
 class PlannerPlanError(ValueError):
@@ -106,7 +106,13 @@ def extract_plan_json(text: str) -> dict[str, Any]:
     return parsed
 
 
-def normalize_plan(raw_plan: dict[str, Any], *, pipeline_id: str, config: Config) -> dict[str, Any]:
+def normalize_plan(
+    raw_plan: dict[str, Any],
+    *,
+    pipeline_id: str,
+    config: Config,
+    kind: str = "bi",
+) -> dict[str, Any]:
     """Validate planner JSON and fill deterministic branch/deploy defaults."""
     try:
         plan = PlannerPlan.model_validate(raw_plan)
@@ -122,10 +128,12 @@ def normalize_plan(raw_plan: dict[str, Any], *, pipeline_id: str, config: Config
             pipeline=pipeline_id,
             slug=slug,
         )
-        deploy_target_name = assignment.deploy_target_name or config.deploy_target.pattern.format(
-            base="dev",
-            slug=slugify_branch(branch),
-        )
+        deploy_target_name = None
+        if kind == "bi":
+            deploy_target_name = assignment.deploy_target_name or config.bi.deploy_target.pattern.format(
+                base="dev",
+                slug=slugify_branch(branch),
+            )
         normalized_assignments.append(
             {
                 "title": assignment.title,
@@ -149,12 +157,19 @@ def normalize_plan(raw_plan: dict[str, Any], *, pipeline_id: str, config: Config
     }
 
 
-def parse_planner_response(text: str, *, pipeline_id: str, config: Config) -> dict[str, Any]:
-    return normalize_plan(extract_plan_json(text), pipeline_id=pipeline_id, config=config)
+def parse_planner_response(
+    text: str,
+    *,
+    pipeline_id: str,
+    config: Config,
+    kind: str = "bi",
+) -> dict[str, Any]:
+    return normalize_plan(extract_plan_json(text), pipeline_id=pipeline_id, config=config, kind=kind)
 
 
-def load_planner_prompt() -> str:
-    return PROMPT_PATH.read_text(encoding="utf-8")
+def load_planner_prompt(kind: str = "bi") -> str:
+    prompt_name = "generic" if kind == "generic" else "bi"
+    return (PROMPT_DIR / f"{prompt_name}.md").read_text(encoding="utf-8")
 
 
 def render_planner_prompt(
@@ -164,15 +179,16 @@ def render_planner_prompt(
     base_branch: str,
     pipeline_id: str,
     config: Config,
+    kind: str = "bi",
 ) -> str:
-    template = load_planner_prompt()
+    template = load_planner_prompt(kind)
     return template.format(
         requirements=requirements,
         target_repo_path=target_repo_path,
         base_branch=base_branch,
         pipeline_id=pipeline_id,
         branch_pattern=config.git.branch_pattern,
-        deploy_target_pattern=config.deploy_target.pattern,
+        deploy_target_pattern=config.bi.deploy_target.pattern,
     )
 
 
@@ -184,6 +200,7 @@ def run_planner_once(
     prompt: str,
     pipeline_id: str,
     config: Config,
+    kind: str = "bi",
     stream_to_console: bool = True,
 ) -> PlannerRunOutcome:
     """Run the planner agent once and parse its structured plan."""
@@ -237,7 +254,7 @@ def run_planner_once(
     error_message: str | None = None
     if status == "finished" and final_text:
         try:
-            plan = parse_planner_response(final_text, pipeline_id=pipeline_id, config=config)
+            plan = parse_planner_response(final_text, pipeline_id=pipeline_id, config=config, kind=kind)
         except PlannerPlanError as err:
             status = "error"
             error_message = str(err)

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from bi_orchestrator import db, mcp_server
-from bi_orchestrator.config import load_config
+from agents_orchestrator import db, mcp_server
+from agents_orchestrator.config import load_config
 
 
 @pytest.fixture()

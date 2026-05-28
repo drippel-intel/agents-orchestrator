@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from bi_orchestrator import db
-from bi_orchestrator.state_machine import find_file_conflicts, ready_planned_assignments
+from agents_orchestrator import db
+from agents_orchestrator.state_machine import find_file_conflicts, ready_planned_assignments
 
 
 def test_find_file_conflicts_normalizes_paths() -> None:

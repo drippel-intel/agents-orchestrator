@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from bi_orchestrator.agents.qa import QAReportError, parse_qa_report
+from agents_orchestrator.agents.qa import QAReportError, parse_qa_report
 
 
 def test_parse_qa_report_accepts_fenced_json() -> None:

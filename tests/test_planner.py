@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from bi_orchestrator.agents.planner import PlannerPlanError, parse_planner_response
-from bi_orchestrator.config import load_config
+from agents_orchestrator.agents.planner import PlannerPlanError, parse_planner_response
+from agents_orchestrator.config import load_config
 
 
 @pytest.fixture()
@@ -72,3 +72,30 @@ def test_parse_planner_response_dedupes_slugs(config) -> None:
 def test_parse_planner_response_rejects_missing_assignments(config) -> None:
     with pytest.raises(PlannerPlanError):
         parse_planner_response('{"summary": "empty", "assignments": []}', pipeline_id="p", config=config)
+
+
+def test_parse_planner_response_omits_deploy_target_for_generic(config) -> None:
+    text = """
+    {
+      "summary": "Fix API behavior.",
+      "assignments": [
+        {
+          "title": "Fix API response",
+          "files": ["src/api.py"],
+          "scenarios": [
+            {
+              "name": "Regression test",
+              "kind": "unit_test",
+              "expected": {"description": "test passes"}
+            }
+          ]
+        }
+      ]
+    }
+    """
+
+    plan = parse_planner_response(text, pipeline_id="p_abc123", config=config, kind="generic")
+
+    assignment = plan["assignments"][0]
+    assert assignment["deploy_target_name"] is None
+    assert assignment["scenarios"][0]["kind"] == "unit_test"

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from bi_orchestrator import db, orchestrator
-from bi_orchestrator.agents.developer import DevRunOutcome
-from bi_orchestrator.agents.qa import QARunOutcome
-from bi_orchestrator.config import load_config
-from bi_orchestrator.worktree import WorktreeInfo, slugify_branch
+from agents_orchestrator import db, orchestrator
+from agents_orchestrator.agents.developer import DevRunOutcome
+from agents_orchestrator.agents.qa import QARunOutcome
+from agents_orchestrator.config import load_config
+from agents_orchestrator.worktree import WorktreeInfo, slugify_branch
 
 
 @pytest.fixture()

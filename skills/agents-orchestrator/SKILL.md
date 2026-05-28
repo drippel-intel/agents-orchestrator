@@ -1,33 +1,20 @@
 ---
-name: bi-orchestrator
+name: agents-orchestrator
 description: >-
-  Drive the bi-orchestrator pipeline to run parallel autonomous Cursor SDK agents
-  across git worktrees of Power BI repos that use the aim-pbi-dev toolchain
-  (intel-pbi-dev, intel-databricks-dev, intel-support-triage MCPs and the
-  powerbi-dev skill). Use this when the user asks to kick off a pipeline, run a
-  batch of BI requirements in parallel, orchestrate agents across multiple
-  branches, fan out work, split a set of changes across worktrees, or check the
-  status of running pipelines. Use it any time the user mentions the
-  bi-orchestrator MCP, the orchestrator skill, the `start_pipeline` /
-  `get_status` tools, or refers to "the orchestrator" in a Power BI / aim-pbi-dev
-  context. Do not invoke this skill for everyday single-agent BI work (adding a
-  measure, fixing one DAX expression, deploying once, running QA on a single
-  branch) — the regular powerbi-dev workflow handles that. The orchestrator only
-  earns its keep when the user wants to run multiple assignments concurrently or
-  needs durable state across chat sessions.
+  Drive the agents-orchestrator pipeline to run parallel autonomous Cursor SDK agents
+  across git worktrees for standard software-development repos and BI repos. Use
+  this when the user asks to kick off a pipeline, run a batch of requirements in
+  parallel, orchestrate agents across multiple branches, fan out work, split a
+  set of changes across worktrees, or check running pipeline status.
 ---
 
-# bi-orchestrator
+# agents-orchestrator
 
-The **bi-orchestrator** is a local Python service plus a custom MCP server that
-runs **parallel** Cursor SDK agents on isolated git worktrees of a Power BI repo
-(qov2 etc.), each on its own branch, with planner approval, automated QA via the
-aim-pbi-dev MCP, per-branch deploy targets, and human validation gating. State
-lives in SQLite at `~/.bi-orchestrator/state.db` so the system survives reboots
-and the chat does not need to stay open while agents work.
-
-This skill teaches you (the chat agent) how to drive the orchestrator. It does
-**not** replace the `powerbi-dev` skill for ordinary one-task BI work.
+The **agents-orchestrator** is a local Python service plus a custom MCP server
+that runs **parallel** Cursor SDK agents on isolated git worktrees. It supports
+standard software-dev repos with single-pass QA and BI repos with aim-pbi-dev
+static/live QA. State lives in SQLite at `~/.agents-orchestrator/state.db` so the
+system survives reboots and the chat does not need to stay open while agents work.
 
 ---
 
@@ -35,12 +22,12 @@ This skill teaches you (the chat agent) how to drive the orchestrator. It does
 
 Before the orchestrator can do any real work:
 
-1. The bi-orchestrator MCP server is installed in `~/.cursor/mcp.json`. If the
-   tools `bi-orchestrator.start_pipeline` / `bi-orchestrator.get_status` are not
+1. The agents-orchestrator MCP server is installed in `~/.cursor/mcp.json`. If the
+   tools `agents-orchestrator.start_pipeline` / `agents-orchestrator.get_status` are not
    available to you, ask the user to run:
 
    ```powershell
-   C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe install-mcp --skill
+   C:\Users\drippel\.agents-orchestrator-venv\Scripts\agents-orchestrator.exe install-mcp --skill
    ```
 
    and restart any open Cursor chats.
@@ -50,10 +37,9 @@ Before the orchestrator can do any real work:
    missing, the orchestrator's CLI / smoke command will fail with an explicit
    message and exit code 1.
 
-3. The target BI repo is reachable from the local machine, is a git repository,
-   has the standard `.cursor/mcp.json` referencing `intel-pbi-dev` /
-   `intel-databricks-dev` / `intel-support-triage`, and (for live QA) a
-   `pbi-project.json` with at least a `dev` model target.
+3. The target repo is reachable from the local machine and is a git repository.
+   BI repos should have their normal aim-pbi-dev files (`pbi-project.json`,
+   `.aim-pbi-dev`, or the `powerbi-dev` skill) so auto-detection selects BI QA.
 
 ---
 
@@ -63,11 +49,11 @@ The orchestrator is being built in phases. As of Phase 5:
 
 | Phase | Status | What works |
 |------|--------|------------|
-| 0 — end-to-end smoke | shipped | `start_pipeline`, `get_status`, `list_recent_events`, `pending_notifications`, `acknowledge_notification` tools; CLI `bi-orchestrator smoke` runs one developer agent on a sibling worktree end-to-end |
-| 1 — planner agent + approval | shipped | CLI `bi-orchestrator plan <pipeline_id>` runs the planner; MCP `show_plan`, `edit_plan`, `approve_plan` materialize assignments after approval |
-| 2 — fan-out | shipped | CLI `bi-orchestrator daemon` schedules approved assignments across worktrees up to `max_parallel_dev_agents`; `--once` runs one scheduler tick |
-| 3 — static QA loop | shipped | QA agent runs static checks after dev; failures resume the developer agent until `max_qa_iterations` |
-| 4 — live QA per branch | shipped | live QA deploys, refreshes, runs measure/regression tests against each assignment deploy target, and feeds failures back through the QA loop |
+| 0 — end-to-end smoke | shipped | `start_pipeline`, `get_status`, `list_recent_events`, `pending_notifications`, `acknowledge_notification` tools; CLI `agents-orchestrator smoke` runs one developer agent on a sibling worktree end-to-end |
+| 1 — planner agent + approval | shipped | CLI `agents-orchestrator plan <pipeline_id>` runs the planner; MCP `show_plan`, `edit_plan`, `approve_plan` materialize assignments after approval |
+| 2 — fan-out | shipped | CLI `agents-orchestrator daemon` schedules approved assignments across worktrees up to `max_parallel_dev_agents`; `--once` runs one scheduler tick |
+| 3 — QA loop | shipped | Generic repos run one combined lint/typecheck/test/build QA pass; BI repos run static QA first. Failures resume the developer agent until `max_qa_iterations` |
+| 4 — BI live QA per branch | shipped | BI live QA deploys, refreshes, runs measure/regression tests against each assignment deploy target, and feeds failures back through the QA loop |
 | 5 — validation + auto-merge | shipped | `pending_validations`, `submit_validation`, `merge_assignment`, `gh pr merge`, worktree cleanup |
 
 When the user asks for capabilities that are not yet shipped, tell them what
@@ -75,11 +61,12 @@ phase that lands in and offer to run the Phase 0 smoke instead.
 
 ---
 
-## Available tools (from the `bi-orchestrator` MCP server)
+## Available tools (from the `agents-orchestrator` MCP server)
 
-- **`start_pipeline(requirements, target_repo_path, base_branch?, notes?)`**
+- **`start_pipeline(requirements, target_repo_path, base_branch?, notes?, kind?)`**
   Creates a pipeline row in the SQLite state store with status `planned`.
-  Run `bi-orchestrator plan <pipeline_id>` to create the planner draft.
+  `kind` defaults to `auto`; pass `bi` or `generic` to override detection.
+  Run `agents-orchestrator plan <pipeline_id>` to create the planner draft.
 - **`show_plan(pipeline_id)`** — return the planner draft for review.
 - **`edit_plan(pipeline_id, patch_json, replace?)`** — update the draft before approval.
 - **`approve_plan(pipeline_id)`** — approve the draft and create assignment rows.
@@ -103,21 +90,21 @@ phase that lands in and offer to run the Phase 0 smoke instead.
 Order of operations:
 
 1. Confirm the **target repo path** (absolute) and that you understand the
-   requirements. If the user spoke a path like "qov2" without a full path, infer
-   `Q:\BI\Users\Dudi\Developments\qov2`-style based on their machine.
+   requirements.
 2. Confirm the **base branch** (default `main`).
-3. Call `start_pipeline` to record the pipeline. Show the returned `pipeline_id`
-   to the user.
+3. Call `start_pipeline` to record the pipeline. Prefer `kind="auto"` unless the
+   user explicitly wants `bi` or `generic`. Show the returned `pipeline_id` and
+   resolved `kind` to the user.
 4. Run the planner from the installed CLI:
 
    ```powershell
-   C:\Users\drippel\.bi-orchestrator-venv\Scripts\bi-orchestrator.exe plan <pipeline_id>
+   C:\Users\drippel\.agents-orchestrator-venv\Scripts\agents-orchestrator.exe plan <pipeline_id>
    ```
 
 5. Call `show_plan(pipeline_id=…)`, review the assignments with the user, then
    call `edit_plan` if needed or `approve_plan` when the draft is acceptable.
-6. Run `bi-orchestrator daemon` to fan out approved assignments. Use
-   `bi-orchestrator daemon --once` for one deterministic scheduler tick.
+6. Run `agents-orchestrator daemon` to fan out approved assignments. Use
+   `agents-orchestrator daemon --once` for one deterministic scheduler tick.
 
 ---
 
@@ -149,7 +136,7 @@ Call `pending_validations()` to list assignments awaiting review. Use
   `show_plan`, `edit_plan`, `approve_plan`, `get_status`, `list_recent_events`,
   `pending_notifications`, `acknowledge_notification`, `pending_validations`,
   `submit_validation`, and `merge_assignment`.
-- **Never** edit the target BI repo directly from this chat. The orchestrator is
+- **Never** edit the target repo directly from this chat. The orchestrator is
   the only path that touches a repo, via spawned dev / QA agents in their own
   worktrees.
 - **Never** instruct the user to disable caps to "get something through". Caps

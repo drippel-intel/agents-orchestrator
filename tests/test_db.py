@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from bi_orchestrator import db
+from agents_orchestrator import db
 
 
 @pytest.fixture()
@@ -26,12 +26,12 @@ def test_migrations_apply_and_are_idempotent(tmp_path: Path) -> None:
     state_db = tmp_path / "state.db"
     c1 = db.connect(state_db)
     rows = c1.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    assert [r["version"] for r in rows] == [db.SCHEMA_LATEST]
+    assert [r["version"] for r in rows] == list(range(1, db.SCHEMA_LATEST + 1))
     c1.close()
 
     c2 = db.connect(state_db)
     rows = c2.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
-    assert [r["version"] for r in rows] == [db.SCHEMA_LATEST]
+    assert [r["version"] for r in rows] == list(range(1, db.SCHEMA_LATEST + 1))
     c2.close()
 
 
@@ -47,6 +47,7 @@ def test_pipeline_lifecycle(conn: sqlite3.Connection) -> None:
     pipeline = db.get_pipeline(conn, pid)
     assert pipeline is not None
     assert pipeline["status"] == db.PipelineStatus.PLANNED
+    assert pipeline["kind"] == "bi"
     assert pipeline["target_repo_path"].endswith("qov2")
 
     db.update_pipeline_status(conn, pid, db.PipelineStatus.RUNNING)

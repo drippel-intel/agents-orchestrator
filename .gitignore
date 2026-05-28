@@ -14,7 +14,7 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
-# Local state (orchestrator writes to ~/.bi-orchestrator/, but keep belt-and-braces)
+# Local state (orchestrator writes to ~/.agents-orchestrator/, but keep belt-and-braces)
 state.db
 state.db-*
 *.log

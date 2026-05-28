@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from bi_orchestrator import db, orchestrator
-from bi_orchestrator.agents.developer import DevRunOutcome
-from bi_orchestrator.agents.qa import QARunOutcome
-from bi_orchestrator.config import load_config
-from bi_orchestrator.worktree import WorktreeInfo, slugify_branch
+from agents_orchestrator import db, orchestrator
+from agents_orchestrator.agents.developer import DevRunOutcome
+from agents_orchestrator.agents.qa import QARunOutcome
+from agents_orchestrator.config import load_config
+from agents_orchestrator.worktree import WorktreeInfo, slugify_branch
 
 
 @pytest.fixture()
@@ -54,7 +54,7 @@ def _install_common_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         lambda _model, api_key=None: SimpleNamespace(resolved="test-model", fallback_used=False),
     )
 
-    def fake_provision(config, repo_path, branch, *, base_branch=None, **_kwargs):
+    def fake_provision(config, repo_path, branch, *, base_branch=None, kind="bi", **_kwargs):
         slug = slugify_branch(branch)
         worktree_path = tmp_path / f"wt-{slug}"
         worktree_path.mkdir(exist_ok=True)
@@ -64,7 +64,7 @@ def _install_common_fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
             branch=branch,
             slug=slug,
             worktree_path=worktree_path,
-            deploy_target_name=f"dev-{slug}",
+            deploy_target_name=f"dev-{slug}" if kind == "bi" else None,
         )
 
     monkeypatch.setattr(orchestrator, "provision_worktree", fake_provision)
@@ -158,3 +158,49 @@ def test_static_qa_cap_exceeded_pauses_assignment(
     assert assignment["qa_iter"] == 2
     assert pipeline["status"] == db.PipelineStatus.FAILED
     assert notifications[0]["kind"] == "cap_exceeded"
+
+
+def test_generic_pipeline_skips_live_qa(config, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    conn = db.connect(config.paths.state_db)
+    try:
+        pipeline_id = db.create_pipeline(
+            conn,
+            requirements_doc="Fix one generic bug.",
+            target_repo_path=str(repo),
+            base_branch="main",
+            status=db.PipelineStatus.APPROVED,
+            kind="generic",
+        )
+        assignment_id = db.create_assignment(
+            conn,
+            pipeline_id,
+            title="Generic assignment",
+            branch=f"agents/{pipeline_id}/generic",
+            files=["src/app.py"],
+        )
+    finally:
+        conn.close()
+
+    _install_common_fakes(monkeypatch, tmp_path)
+    monkeypatch.setattr(orchestrator, "run_developer_once", lambda **_kwargs: _dev_outcome())
+    monkeypatch.setattr(orchestrator, "run_static_qa_once", lambda **_kwargs: _qa_outcome(True))
+
+    def fail_live_qa(**_kwargs):
+        raise AssertionError("generic QA must not run the live QA stage")
+
+    monkeypatch.setattr(orchestrator, "run_live_qa_once", fail_live_qa)
+
+    orchestrator.run_daemon_once(config)
+
+    conn = db.connect(config.paths.state_db)
+    try:
+        assignment = db.get_assignment(conn, assignment_id)
+        events = db.list_events(conn, assignment_id=assignment_id)
+    finally:
+        conn.close()
+
+    assert assignment["status"] == db.AssignmentStatus.AWAITING_VALIDATION
+    assert assignment["deploy_target_name"] is None
+    assert not any(event["kind"] == "live_qa_completed" for event in events)

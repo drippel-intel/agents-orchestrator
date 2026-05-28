@@ -1,4 +1,4 @@
-"""Entry point for ``python -m bi_orchestrator`` and the ``bi-orchestrator`` script.
+"""Entry point for ``python -m agents_orchestrator`` and the ``agents-orchestrator`` script.
 
 Phase 0a: argument parsing skeleton only. Subcommands fill in as later phases land.
 """
@@ -14,7 +14,7 @@ from . import __version__
 from .config import Config, load_config
 from .logging_setup import configure_logging
 
-log = logging.getLogger("bi_orchestrator")
+log = logging.getLogger("agents_orchestrator")
 
 
 def _cmd_daemon(args: argparse.Namespace, config: Config) -> int:
@@ -70,9 +70,19 @@ def _cmd_install_mcp(args: argparse.Namespace, _config: Config) -> int:
     return 0
 
 
+def _cmd_migrate_from_bi(args: argparse.Namespace, _config: Config) -> int:
+    from .install import migrate_from_bi
+
+    result = migrate_from_bi(dry_run=args.dry_run)
+    for action in result["actions"]:
+        log.info("%s", action)
+    log.info("%s", result["message"])
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bi-orchestrator")
-    parser.add_argument("--version", action="version", version=f"bi-orchestrator {__version__}")
+    parser = argparse.ArgumentParser(prog="agents-orchestrator")
+    parser.add_argument("--version", action="version", version=f"agents-orchestrator {__version__}")
     parser.add_argument("--config", type=str, default=None, help="path to an extra config TOML")
     parser.add_argument("--debug", action="store_true", help="enable debug logging")
 
@@ -96,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_smoke.add_argument(
         "--target-repo",
         required=True,
-        help="absolute path to the target BI repo (e.g. Q:\\BI\\Users\\Dudi\\Developments\\qov2)",
+        help="absolute path to the target repo",
     )
     p_smoke.add_argument(
         "--cleanup",
@@ -114,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_install = sub.add_parser(
         "install-mcp",
-        help="add the bi-orchestrator MCP server entry to ~/.cursor/mcp.json",
+        help="add the agents-orchestrator MCP server entry to ~/.cursor/mcp.json",
     )
     p_install.add_argument(
         "--skill", action="store_true", help="also install the chat skill"
@@ -123,6 +133,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="show what would change without writing"
     )
     p_install.set_defaults(func=_cmd_install_mcp)
+
+    p_migrate = sub.add_parser(
+        "migrate-from-bi",
+        help="migrate ~/.bi-orchestrator state and MCP config to agents-orchestrator",
+    )
+    p_migrate.add_argument(
+        "--dry-run", action="store_true", help="show what would change without writing"
+    )
+    p_migrate.set_defaults(func=_cmd_migrate_from_bi)
 
     return parser
 
@@ -139,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(extra_path=extra)
     configure_logging(
         config.paths.logs_dir,
-        process_name="bi-orchestrator",
+        process_name="agents-orchestrator",
         level=logging.DEBUG if args.debug else logging.INFO,
     )
     log.debug("loaded config: %s", config.model_dump())

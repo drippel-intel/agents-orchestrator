@@ -12,9 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-log = logging.getLogger("bi_orchestrator.agents.qa")
-PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "qa.md"
-LIVE_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "live_qa.md"
+log = logging.getLogger("agents_orchestrator.agents.qa")
 
 
 class QAReportError(ValueError):
@@ -67,14 +65,15 @@ def render_static_qa_prompt(
     files: list[str],
     acceptance_criteria: str | None,
     deploy_target_name: str | None,
+    kind: str = "bi",
 ) -> str:
-    template = PROMPT_PATH.read_text(encoding="utf-8")
-    files_text = "\n".join(f"- {path}" for path in files) if files else "- Inspect changed files."
-    return template.format(
+    from ..qa_strategies import get_strategy
+
+    return get_strategy(kind).render_static_prompt(
         title=title,
-        files=files_text,
-        acceptance_criteria=acceptance_criteria or "Use the assignment title and diff.",
-        deploy_target_name=deploy_target_name or "dev",
+        files=files,
+        acceptance_criteria=acceptance_criteria,
+        deploy_target_name=deploy_target_name,
     )
 
 
@@ -83,19 +82,20 @@ def render_live_qa_prompt(
     title: str,
     deploy_target_name: str | None,
     scenarios: list[dict[str, Any]],
+    kind: str = "bi",
 ) -> str:
-    template = LIVE_PROMPT_PATH.read_text(encoding="utf-8")
-    scenarios_text = json.dumps(scenarios, indent=2) if scenarios else "[]"
-    return template.format(
+    from ..qa_strategies import get_strategy
+
+    return get_strategy(kind).render_live_prompt(
         title=title,
-        deploy_target_name=deploy_target_name or "dev",
-        scenarios=scenarios_text,
+        deploy_target_name=deploy_target_name,
+        scenarios=scenarios,
     )
 
 
 def render_developer_qa_feedback_prompt(report: dict[str, Any]) -> str:
     return (
-        "Static QA found issues. Fix them in the current worktree, keeping the "
+        "QA found issues. Fix them in the current worktree, keeping the "
         "assignment scope unchanged, then summarize what changed.\n\n"
         f"QA report JSON:\n{json.dumps(report, indent=2)}"
     )

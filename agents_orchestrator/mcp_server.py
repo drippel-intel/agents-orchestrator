@@ -1,4 +1,4 @@
-"""bi-orchestrator MCP server.
+"""agents-orchestrator MCP server.
 
 Stdio MCP server that exposes the orchestrator state store to any Cursor chat.
 Reads / writes only SQLite; it does **not** spawn agents. Long-running
@@ -7,12 +7,12 @@ into the same SQLite single-source-of-truth.
 
 Phase 0e ships:
 - ``start_pipeline``: register a new pipeline (status ``planned``). The Phase 0
-  smoke flow is run via the CLI (``bi-orchestrator smoke``); the daemon will pick
+  smoke flow is run via the CLI (``agents-orchestrator smoke``); the daemon will pick
   up planned pipelines automatically in later phases.
 - ``get_status``: list pipelines + assignments, or drill into one.
 - ``list_recent_events``: recent state-machine events for debugging.
 
-Install with ``bi-orchestrator install-mcp`` (see ``install.py``); Cursor spawns
+Install with ``agents-orchestrator install-mcp`` (see ``install.py``); Cursor spawns
 this entrypoint on-demand per chat session.
 """
 
@@ -28,13 +28,14 @@ from mcp.server.fastmcp import FastMCP
 from . import db
 from .agents.planner import PlannerPlanError, normalize_plan
 from .config import load_config
+from .detect import resolve_repo_kind
 from .logging_setup import configure_logging
 from .state_machine import find_file_conflicts
 from .worktree import WorktreeInfo, slugify_branch, teardown_worktree
 
-log = logging.getLogger("bi_orchestrator.mcp_server")
+log = logging.getLogger("agents_orchestrator.mcp_server")
 
-mcp = FastMCP("bi-orchestrator")
+mcp = FastMCP("agents-orchestrator")
 
 # Module-level config + connection. FastMCP runs synchronously per request; SQLite
 # WAL mode tolerates concurrent reads with the daemon's writes without locking.
@@ -46,7 +47,7 @@ def _ensure_ready():
     global _CONFIG, _CONN
     if _CONFIG is None:
         _CONFIG = load_config()
-        configure_logging(_CONFIG.paths.logs_dir, process_name="bi-orchestrator-mcp")
+        configure_logging(_CONFIG.paths.logs_dir, process_name="agents-orchestrator-mcp")
     if _CONN is None:
         _CONN = db.connect(_CONFIG.paths.state_db)
     return _CONFIG, _CONN
@@ -58,6 +59,7 @@ def _serialize_pipeline(p: dict[str, Any]) -> dict[str, Any]:
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
         "status": p["status"],
+        "kind": p.get("kind") or "bi",
         "target_repo_path": p["target_repo_path"],
         "base_branch": p["base_branch"],
         "requirements_doc": p["requirements_doc"],
@@ -104,7 +106,12 @@ def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 def _normalize_or_error(pipeline: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
     config, _conn = _ensure_ready()
     try:
-        return normalize_plan(plan, pipeline_id=pipeline["id"], config=config)
+        return normalize_plan(
+            plan,
+            pipeline_id=pipeline["id"],
+            config=config,
+            kind=pipeline.get("kind") or "bi",
+        )
     except PlannerPlanError as err:
         raise ValueError(f"Invalid plan for pipeline {pipeline['id']}: {err}") from err
 
@@ -165,6 +172,7 @@ def start_pipeline(
     target_repo_path: str,
     base_branch: str = "main",
     notes: str | None = None,
+    kind: str = "auto",
 ) -> dict[str, Any]:
     """Register a new orchestration pipeline.
 
@@ -177,14 +185,15 @@ def start_pipeline(
         requirements: Free-form text describing the batch of work the user
             wants done. The planner agent will decompose this into per-branch
             assignments in Phase 1+.
-        target_repo_path: Absolute path to the target BI repo (must be a git
-            repository whose ``.cursor/mcp.json`` references the aim-pbi-dev
-            toolchain). Example: ``Q:\\BI\\Users\\Dudi\\Developments\\qov2``.
+        target_repo_path: Absolute path to the target repo.
         base_branch: Branch from which all per-assignment branches will be cut.
             Defaults to ``main``.
         notes: Optional short note (e.g. ``"smoke"`` or ``"hotfix batch"``).
+        kind: ``auto`` (default), ``bi``, or ``generic``. Auto uses repo markers
+            such as ``pbi-project.json`` and ``.aim-pbi-dev``.
     """
     config, conn = _ensure_ready()
+    resolved_kind = resolve_repo_kind(Path(target_repo_path), kind)
     pid = db.create_pipeline(
         conn,
         requirements_doc=requirements,
@@ -192,15 +201,17 @@ def start_pipeline(
         base_branch=base_branch,
         status=db.PipelineStatus.PLANNED,
         notes=notes,
+        kind=resolved_kind,
     )
     return {
         "pipeline_id": pid,
         "status": db.PipelineStatus.PLANNED,
+        "kind": resolved_kind,
         "target_repo_path": target_repo_path,
         "base_branch": base_branch,
         "message": (
             f"Pipeline {pid} created. "
-            "Run `bi-orchestrator plan "
+            "Run `agents-orchestrator plan "
             f"{pid}` to generate a planner draft, then use show_plan / approve_plan."
         ),
     }
@@ -350,6 +361,7 @@ def get_status(pipeline_id: str | None = None) -> dict[str, Any]:
                 {
                     "id": p["id"],
                     "status": p["status"],
+                    "kind": p.get("kind") or "bi",
                     "target_repo_path": p["target_repo_path"],
                     "created_at": p["created_at"],
                     "updated_at": p["updated_at"],
@@ -640,9 +652,9 @@ def _cleanup_assignment_worktree(pipeline: dict[str, Any], assignment: dict[str,
 
 def main() -> None:
     """Entry point used by Cursor (via ``~/.cursor/mcp.json``) and the
-    ``bi-orchestrator-mcp`` console script."""
+    ``agents-orchestrator-mcp`` console script."""
     _ensure_ready()
-    log.info("bi-orchestrator MCP server starting (stdio)")
+    log.info("agents-orchestrator MCP server starting (stdio)")
     mcp.run()
 
 

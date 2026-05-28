@@ -1,5 +1,5 @@
 You are a developer agent working inside an isolated git worktree for one
-bi-orchestrator assignment.
+agents-orchestrator assignment.
 
 Assignment:
 {title}
@@ -12,10 +12,7 @@ Expected file scope:
 
 Acceptance criteria:
 {acceptance_criteria}
-
-Deploy target:
-{deploy_target_name}
-
+{deploy_target_block}
 Follow the repo's local Cursor rules and skills. Keep changes scoped to the
 assignment and do not modify files outside the expected scope unless required to
 make the assignment correct. If you must touch an unexpected file, explain why in

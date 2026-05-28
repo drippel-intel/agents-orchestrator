@@ -21,7 +21,7 @@ from pathlib import Path
 
 from cursor_sdk import Agent, AgentOptions, CursorAgentError, LocalAgentOptions, RunResult
 
-log = logging.getLogger("bi_orchestrator.agents.developer")
+log = logging.getLogger("agents_orchestrator.agents.developer")
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "developer.md"
 
 
@@ -217,13 +217,17 @@ def render_developer_prompt(
     files: list[str],
     acceptance_criteria: str | None,
     deploy_target_name: str | None,
+    kind: str = "bi",
 ) -> str:
     template = PROMPT_PATH.read_text(encoding="utf-8")
     files_text = "\n".join(f"- {path}" for path in files) if files else "- Inspect the repo."
+    deploy_target_block = ""
+    if kind == "bi" or deploy_target_name:
+        deploy_target_block = f"\nDeploy target:\n{deploy_target_name or 'dev'}\n\n"
     return template.format(
         title=title,
         requirements=requirements,
         files=files_text,
         acceptance_criteria=acceptance_criteria or "Use the assignment title and requirements.",
-        deploy_target_name=deploy_target_name or "dev",
+        deploy_target_block=deploy_target_block,
     )

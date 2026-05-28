@@ -1,11 +1,11 @@
-# One-shot installer for bi-orchestrator on a fresh Windows machine.
+# One-shot installer for agents-orchestrator on a fresh Windows machine.
 #
 # Idempotent -- safe to re-run. Default behaviour:
 #   1. Verify Python 3.10+ is on PATH.
-#   2. Create / reuse a venv (default: ~/.bi-orchestrator-venv).
+#   2. Create / reuse a venv (default: ~/.agents-orchestrator-venv).
 #   3. Install the project from the surrounding source folder in editable mode.
 #   4. Register the MCP server in ~/.cursor/mcp.json.
-#   5. Install the chat skill in ~/.cursor/skills/bi-orchestrator/.
+#   5. Install the chat skill in ~/.cursor/skills/agents-orchestrator/.
 #   6. Check CURSOR_API_KEY -- if absent, prompt and persist it via `setx`.
 #
 # Opt out of any of those defaults with the corresponding -Skip... switch.
@@ -13,7 +13,7 @@
 # Usage:
 #   .\scripts\install.ps1                                   # full install
 #   .\scripts\install.ps1 -SkipMcp -SkipSkill               # venv + pip only
-#   .\scripts\install.ps1 -VenvPath D:\envs\bi-orch-venv    # custom venv path
+#   .\scripts\install.ps1 -VenvPath D:\envs\agents-orch-venv    # custom venv path
 #   .\scripts\install.ps1 -SkipApiKeyPrompt                 # don't ask for key
 #   .\scripts\install.ps1 -ApiKey 'crsr_...'                # non-interactive key
 #
@@ -28,7 +28,7 @@
 
 [CmdletBinding()]
 param(
-    [string] $VenvPath = "$env:USERPROFILE\.bi-orchestrator-venv",
+    [string] $VenvPath = "$env:USERPROFILE\.agents-orchestrator-venv",
     [switch] $SkipMcp,
     [switch] $SkipSkill,
     [switch] $SkipApiKeyPrompt,
@@ -116,7 +116,7 @@ function Read-SecretString($prompt) {
     # visible `Read-Host` if the GUI surface isn't available.
     try {
         $msg = "Paste your Cursor API key below.`r`nMint one at: https://cursor.com/dashboard/cloud-agents`r`nThe value is masked; click 'Show' to reveal what you pasted."
-        return (Show-SecretInputDialog -Title "bi-orchestrator: CURSOR_API_KEY" -Prompt $msg)
+        return (Show-SecretInputDialog -Title "agents-orchestrator: CURSOR_API_KEY" -Prompt $msg)
     } catch {
         Write-Warning "GUI prompt unavailable ($($_.Exception.Message)). Falling back to a visible text prompt -- the key will appear on screen."
         return (Read-Host -Prompt $prompt)
@@ -139,7 +139,7 @@ function Set-CursorApiKey($key) {
 
 function Stop-LockingProcesses {
     # Stop any process whose image is one of $ExePaths. The typical hit is
-    # `bi-orchestrator-mcp.exe` held by Cursor as a stdio child -- Cursor will
+    # `agents-orchestrator-mcp.exe` held by Cursor as a stdio child -- Cursor will
     # respawn it on the next tool call, so killing it is safe and avoids
     # `WinError 32` from pip when it tries to overwrite the script entry point.
     param([Parameter(Mandatory)] [string[]] $ExePaths)
@@ -175,7 +175,7 @@ function Stop-LockingProcesses {
 }
 
 $ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path
-Write-Header "bi-orchestrator install"
+Write-Header "agents-orchestrator install"
 Write-Host "Project root : $ProjectRoot"
 Write-Host "Venv path    : $VenvPath"
 Write-Host "Install MCP  : $(-not $SkipMcp)"
@@ -209,8 +209,8 @@ if (Test-Path $VenvPython) {
     if ($LASTEXITCODE -ne 0) { Write-Error "venv creation failed"; exit $LASTEXITCODE }
 }
 
-$VenvBiOrch    = Join-Path $VenvPath "Scripts\bi-orchestrator.exe"
-$VenvBiOrchMcp = Join-Path $VenvPath "Scripts\bi-orchestrator-mcp.exe"
+$VenvBiOrch    = Join-Path $VenvPath "Scripts\agents-orchestrator.exe"
+$VenvBiOrchMcp = Join-Path $VenvPath "Scripts\agents-orchestrator-mcp.exe"
 
 # Free up any locked entry-point exes before pip overwrites them. This is
 # almost always the MCP server held by a running Cursor IDE session.
@@ -221,8 +221,8 @@ if (-not $SkipPipUpgrade) {
     & $VenvPython -m pip install --upgrade pip --quiet
 }
 
-# --- 3. Install bi-orchestrator -----------------------------------------------
-Write-Header "Install bi-orchestrator (editable mode)"
+# --- 3. Install agents-orchestrator -----------------------------------------------
+Write-Header "Install agents-orchestrator (editable mode)"
 Push-Location $ProjectRoot
 try {
     & $VenvPython -m pip install -e ".[dev]" --quiet

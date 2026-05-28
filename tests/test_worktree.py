@@ -8,9 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from bi_orchestrator import worktree as wt
-from bi_orchestrator.config import (
+from agents_orchestrator import worktree as wt
+from agents_orchestrator.config import (
     AssignmentCaps,
+    BiConfig,
     CapsConfig,
     Config,
     DeployTargetConfig,
@@ -52,9 +53,9 @@ def _make_config(tmp_path: Path) -> Config:
         ),
         models=ModelsConfig(planner="opus-4.7", developer="opus-4.7", qa="opus-4.7"),
         caps=CapsConfig(assignment=AssignmentCaps(), pipeline=PipelineCaps()),
-        deploy_target=DeployTargetConfig(pattern="{base}-{slug}"),
+        bi=BiConfig(deploy_target=DeployTargetConfig(pattern="{base}-{slug}")),
         git=GitConfig(branch_pattern="agents/{pipeline}/{slug}", default_base_branch="main"),
-        mcp=McpConfig(server_name="bi-orchestrator"),
+        mcp=McpConfig(server_name="agents-orchestrator"),
     )
 
 
@@ -198,3 +199,22 @@ def test_patch_missing_base_target_raises(tmp_path: Path) -> None:
         wt.provision_worktree(
             config, repo, branch="agents/p_test/x", patch_pbi_project=True
         )
+
+
+def test_generic_kind_skips_pbi_project_patching(tmp_path: Path) -> None:
+    repo = _make_repo(tmp_path)
+    _write_pbi_project(repo)
+    config = _make_config(tmp_path)
+
+    info = wt.provision_worktree(
+        config,
+        repo,
+        branch="agents/p_test/generic",
+        kind="generic",
+    )
+
+    assert info.deploy_target_name is None
+    project = json.loads((info.worktree_path / "pbi-project.json").read_text(encoding="utf-8"))
+    assert "dev-generic" not in project["model"]["targets"]
+
+    wt.teardown_worktree(info, force=True)

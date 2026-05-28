@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from bi_orchestrator import db, mcp_server
-from bi_orchestrator.config import load_config
+from agents_orchestrator import db, mcp_server
+from agents_orchestrator.config import load_config
 
 
 @pytest.fixture()
@@ -112,3 +112,17 @@ def test_approve_plan_rejects_overlapping_files(mcp_state) -> None:
 
     assert result["error"] == "Plan has overlapping assignment files."
     assert result["conflicts"][0]["path"] == "model/sales.tmdl"
+
+
+def test_start_pipeline_auto_detects_generic_kind(mcp_state, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    result = mcp_server.start_pipeline(
+        requirements="Fix a Python bug.",
+        target_repo_path=str(repo),
+    )
+
+    pipeline = db.get_pipeline(mcp_state, result["pipeline_id"])
+    assert result["kind"] == "generic"
+    assert pipeline["kind"] == "generic"

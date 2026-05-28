@@ -1,4 +1,4 @@
--- Initial schema for bi-orchestrator state store.
+-- Initial schema for agents-orchestrator state store.
 -- Applied automatically at daemon / MCP startup if not already present.
 
 CREATE TABLE IF NOT EXISTS schema_version (

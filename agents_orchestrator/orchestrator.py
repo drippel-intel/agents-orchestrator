@@ -1,11 +1,11 @@
 """Orchestration entrypoints.
 
 Phase 0d provides ``run_smoke`` only — a single-assignment, single-dev-agent flow
-that exercises every layer end-to-end against a real BI repo:
+that exercises every layer end-to-end against a real target repo:
 
 1. Verify API key + model availability.
 2. Create a pipeline + assignment in SQLite.
-3. Provision a sibling worktree (and patch pbi-project.json if present).
+3. Provision a sibling worktree (and patch pbi-project.json for BI repos).
 4. Launch the developer agent with a benign smoke prompt.
 5. Persist agent_id / run_id / status / final text on the assignment.
 6. Mark the pipeline / assignment terminal and (optionally) tear down the worktree.
@@ -28,12 +28,12 @@ from .agents.developer import render_developer_prompt, resume_developer_once, ru
 from .agents.planner import render_planner_prompt, run_planner_once
 from .agents.qa import (
     render_developer_qa_feedback_prompt,
-    render_live_qa_prompt,
-    render_static_qa_prompt,
     run_live_qa_once,
     run_static_qa_once,
 )
 from .config import Config
+from .detect import detect_repo_kind
+from .qa_strategies import get_strategy
 from .sdk_utils import ApiKeyMissing, get_api_key, resolve_model
 from .state_machine import (
     all_assignments_done,
@@ -43,11 +43,11 @@ from .state_machine import (
 )
 from .worktree import provision_worktree, teardown_worktree
 
-log = logging.getLogger("bi_orchestrator.orchestrator")
+log = logging.getLogger("agents_orchestrator.orchestrator")
 
 
 SMOKE_PROMPT = (
-    "This is an end-to-end smoke test from the bi-orchestrator infrastructure. "
+    "This is an end-to-end smoke test from the agents-orchestrator infrastructure. "
     "Do NOT invoke any tools, do NOT modify any files, do NOT call any MCP servers. "
     "Reply with exactly the following two lines and nothing else:\n"
     "SMOKE OK\n"
@@ -97,6 +97,7 @@ def run_smoke(
         raise FileNotFoundError(f"target_repo does not exist: {target_repo}")
     if not (target_repo / ".git").exists():
         raise RuntimeError(f"{target_repo} is not a git repository")
+    kind = detect_repo_kind(target_repo)
 
     api_key = get_api_key()
     resolution = resolve_model(config.models.developer, api_key=api_key)
@@ -114,6 +115,7 @@ def run_smoke(
             target_repo_path=str(target_repo),
             base_branch=config.git.default_base_branch,
             notes="Phase 0d smoke",
+            kind=kind,
         )
         db.update_pipeline_status(conn, pipeline_id, db.PipelineStatus.RUNNING)
         log.info("Created pipeline %s for repo %s", pipeline_id, target_repo)
@@ -127,7 +129,7 @@ def run_smoke(
         )
         log.info("Created assignment %s on branch %s", assignment_id, branch)
 
-        info = provision_worktree(config, target_repo, branch)
+        info = provision_worktree(config, target_repo, branch, kind=kind)
         log.info(
             "Provisioned worktree at %s (deploy_target=%s)",
             info.worktree_path, info.deploy_target_name,
@@ -229,6 +231,7 @@ def run_planner_for_pipeline(config: Config, pipeline_id: str) -> PlannerOutcome
         target_repo = Path(pipeline["target_repo_path"]).resolve()
         if not target_repo.is_dir():
             raise FileNotFoundError(f"target_repo does not exist: {target_repo}")
+        kind = pipeline.get("kind") or "bi"
 
         prompt = render_planner_prompt(
             requirements=pipeline["requirements_doc"],
@@ -236,6 +239,7 @@ def run_planner_for_pipeline(config: Config, pipeline_id: str) -> PlannerOutcome
             base_branch=pipeline["base_branch"],
             pipeline_id=pipeline_id,
             config=config,
+            kind=kind,
         )
         outcome = run_planner_once(
             api_key=api_key,
@@ -244,6 +248,7 @@ def run_planner_for_pipeline(config: Config, pipeline_id: str) -> PlannerOutcome
             prompt=prompt,
             pipeline_id=pipeline_id,
             config=config,
+            kind=kind,
         )
         if outcome.plan is not None and outcome.status == "finished":
             db.set_pipeline_plan(
@@ -381,6 +386,8 @@ def _run_developer_assignment(
 ) -> None:
     assignment_id = assignment["id"]
     target_repo = Path(pipeline["target_repo_path"]).resolve()
+    kind = pipeline.get("kind") or "bi"
+    qa_strategy = get_strategy(kind)
     api_key = get_api_key()
     resolution = resolve_model(config.models.developer, api_key=api_key)
     qa_resolution = resolve_model(config.models.qa, api_key=api_key)
@@ -389,6 +396,7 @@ def _run_developer_assignment(
         target_repo,
         assignment["branch"],
         base_branch=pipeline["base_branch"],
+        kind=kind,
     )
     prompt = render_developer_prompt(
         title=assignment["title"],
@@ -396,6 +404,7 @@ def _run_developer_assignment(
         files=assignment.get("files") or [],
         acceptance_criteria=assignment.get("acceptance_criteria"),
         deploy_target_name=info.deploy_target_name or assignment.get("deploy_target_name"),
+        kind=kind,
     )
 
     conn = db.connect(config.paths.state_db)
@@ -468,7 +477,7 @@ def _run_developer_assignment(
         finally:
             conn.close()
 
-        qa_prompt = render_static_qa_prompt(
+        qa_prompt = qa_strategy.render_static_prompt(
             title=assignment["title"],
             files=assignment.get("files") or [],
             acceptance_criteria=assignment.get("acceptance_criteria"),
@@ -491,6 +500,9 @@ def _run_developer_assignment(
         )
         failed_report = qa_outcome.report
         if qa_outcome.status == "finished" and qa_outcome.passed:
+            if not qa_strategy.has_live_qa:
+                _mark_assignment_awaiting_validation(config, assignment_id, pipeline["id"])
+                return
             conn = db.connect(config.paths.state_db)
             try:
                 db.update_assignment(
@@ -500,7 +512,7 @@ def _run_developer_assignment(
                 )
             finally:
                 conn.close()
-            live_prompt = render_live_qa_prompt(
+            live_prompt = qa_strategy.render_live_prompt(
                 title=assignment["title"],
                 deploy_target_name=info.deploy_target_name or assignment.get("deploy_target_name"),
                 scenarios=_list_assignment_scenarios(config, assignment_id),
@@ -522,18 +534,7 @@ def _run_developer_assignment(
             )
             failed_report = live_outcome.report
             if live_outcome.status == "finished" and live_outcome.passed:
-                _set_assignment_terminal(config, assignment_id, db.AssignmentStatus.AWAITING_VALIDATION)
-                conn = db.connect(config.paths.state_db)
-                try:
-                    db.add_notification(
-                        conn,
-                        kind="validation_needed",
-                        message=f"Assignment {assignment_id} passed QA and is awaiting validation.",
-                        assignment_id=assignment_id,
-                        pipeline_id=pipeline["id"],
-                    )
-                finally:
-                    conn.close()
+                _mark_assignment_awaiting_validation(config, assignment_id, pipeline["id"])
                 return
 
         if qa_iter >= config.caps.assignment.max_qa_iterations:
@@ -660,6 +661,25 @@ def _set_assignment_terminal(config: Config, assignment_id: str, status: str) ->
     conn = db.connect(config.paths.state_db)
     try:
         db.update_assignment(conn, assignment_id, status=status)
+    finally:
+        conn.close()
+
+
+def _mark_assignment_awaiting_validation(
+    config: Config,
+    assignment_id: str,
+    pipeline_id: str,
+) -> None:
+    conn = db.connect(config.paths.state_db)
+    try:
+        db.update_assignment(conn, assignment_id, status=db.AssignmentStatus.AWAITING_VALIDATION)
+        db.add_notification(
+            conn,
+            kind="validation_needed",
+            message=f"Assignment {assignment_id} passed QA and is awaiting validation.",
+            assignment_id=assignment_id,
+            pipeline_id=pipeline_id,
+        )
     finally:
         conn.close()
 

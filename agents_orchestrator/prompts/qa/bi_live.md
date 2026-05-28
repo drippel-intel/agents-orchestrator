@@ -1,4 +1,4 @@
-You are the live QA agent for one bi-orchestrator assignment.
+You are the live QA agent for one BI agents-orchestrator assignment.
 
 Assignment:
 {title}
